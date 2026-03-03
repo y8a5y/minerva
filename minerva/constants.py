@@ -11,10 +11,15 @@ UPLOAD_SERVER_URL = os.environ.get("MINERVA_UPLOAD_SERVER", "https://gate.minerv
 TOKEN_FILE = Path(os.environ.get("MINERVA_TOKEN_FILE", Path.home() / ".minerva-dpn" / "token"))
 
 # downloader
+CONCURRENCY = int(os.environ.get("MINERVA_CONCURRENCY", 2))
+BATCH_SIZE = int(os.environ.get("MINERVA_BATCH_SIZE", 10))
 ARIA2C = shutil.which("aria2c")
 TEMP_DIR = Path(os.environ.get("MINERVA_TEMP_DIR", Path(tempfile.gettempdir()) / ".minerva-dpn"))
+KEEP_FILES = os.environ.get("MINERVA_KEEP_FILES", "false").lower() in ("1", "true", "yes")
 MAX_RETRIES = int(os.environ.get("MINERVA_MAX_RETRIES", 3))
 RETRY_DELAY = int(os.environ.get("MINERVA_RETRY_DELAY", 5))
+ARIA2C_CONNECTIONS = int(os.environ.get("MINERVA_ARIA2C_CONNECTIONS", 8))
+ARIA2C_PRE_ALLOCATION = os.environ.get("MINERVA_ARIA2C_PRE_ALLOCATION", "prealloc")  # prealloc, falloc, none
 ARIA2C_SIZE_THRESHOLD = int(
     os.environ.get("MINERVA_ARIA2C_SIZE_THRESHOLD", 1 * 1024 * 1024)
 )  # skip aria2c for files < 1 MB

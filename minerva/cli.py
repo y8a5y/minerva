@@ -19,7 +19,16 @@ import click
 from minerva import __version__
 from minerva.auth import do_login, load_token
 from minerva.console import console
-from minerva.constants import SERVER_URL, TEMP_DIR, UPLOAD_SERVER_URL
+from minerva.constants import (
+    ARIA2C_CONNECTIONS,
+    ARIA2C_PRE_ALLOCATION,
+    BATCH_SIZE,
+    CONCURRENCY,
+    KEEP_FILES,
+    SERVER_URL,
+    TEMP_DIR,
+    UPLOAD_SERVER_URL,
+)
 from minerva.loop import worker_loop
 from minerva.version_check import check_for_update
 
@@ -52,17 +61,17 @@ def status() -> None:
 @click.pass_context
 @click.option("--server", default=SERVER_URL, help="Manager server URL")
 @click.option("--upload-server", default=UPLOAD_SERVER_URL, help="Upload API URL")
-@click.option("-c", "--concurrency", default=2, help="Concurrent downloads")
-@click.option("-b", "--batch-size", default=10, help="Max files to fetch per API call")
-@click.option("-a", "--aria2c-connections", default=8, help="aria2c connections per file")
+@click.option("-c", "--concurrency", default=CONCURRENCY, help="Concurrent downloads")
+@click.option("-b", "--batch-size", default=BATCH_SIZE, help="Max files to fetch per API call")
+@click.option("-a", "--aria2c-connections", default=ARIA2C_CONNECTIONS, help="aria2c connections per file")
 @click.option(
     "-p",
     "--pre-allocation",
-    default="prealloc",
+    default=ARIA2C_PRE_ALLOCATION,
     help="Pre-allocation method when using aria2c (prealloc, falloc, none)",
 )
 @click.option("--temp-dir", default=str(TEMP_DIR), help="Temp download dir")
-@click.option("--keep-files", is_flag=True, help="Keep downloaded files after upload")
+@click.option("--keep-files", is_flag=True, default=KEEP_FILES, help="Keep downloaded files after upload")
 def run(
     ctx: click.Context,
     server: str,
