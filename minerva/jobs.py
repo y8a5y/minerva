@@ -46,6 +46,7 @@ async def process_job(
 
     last_err: Exception | None = None
     file_size: int | None = None
+    downloaded: bool = False
     uploaded: bool = False
 
     # get local file path, mirroring URL path to avoid collisions, and sanitize for NTFS
@@ -68,16 +69,18 @@ async def process_job(
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             # Download
-            display.job_update(file_id, "DL")
-            await download_file(
-                url,
-                local_path,
-                aria2c_connections,
-                known_size,
-                pre_allocation,
-                on_progress=lambda done, size: display.job_update(file_id=file_id, status="DL", size=size, done=done),
-            )
+            if not downloaded:
+                display.job_update(file_id, "DL")
+                await download_file(
+                    url,
+                    local_path,
+                    aria2c_connections,
+                    known_size,
+                    pre_allocation,
+                    on_progress=lambda done, size: display.job_update(file_id=file_id, status="DL", size=size, done=done),
+                )
             file_size = local_path.stat().st_size
+            downloaded = True
             # Upload
             display.job_update(file_id, "UL", size=file_size or 0)
             await upload_file(
