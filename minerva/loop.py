@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 from random import random
+from urllib.parse import urlparse
 
 import httpx
 import jwt
@@ -27,6 +28,7 @@ async def worker_loop(
     batch_size: int,
     aria2c_connections: int,
     pre_allocation: str,
+    min_job_size: str,
     max_job_size: str,
     keep_files: bool,
 ) -> None:
@@ -38,6 +40,7 @@ async def worker_loop(
     console.print(f"Concurrency:   {concurrency}")
     console.print(f"Retries:       {MAX_RETRIES}")
     console.print(f"Keep files:    {'yes' if keep_files else 'no'}")
+    console.print(f"Min job size:  {naturalsize(parse_size(min_job_size)) if min_job_size else 'N/A'}")
     console.print(f"Max job size:  {naturalsize(parse_size(max_job_size)) if max_job_size else 'N/A'}")
     console.print(f"Downloader:    {f'aria2c ({aria2c_connections} conns/job)' if ARIA2C else 'httpx'}")
     console.print()
@@ -57,6 +60,7 @@ async def worker_loop(
     seen_ids: set[int] = set()
     display = WorkerDisplay()
 
+    min_job_size_bytes = parse_size(min_job_size) if min_job_size else None
     max_job_size_bytes = parse_size(max_job_size) if max_job_size else None
 
     # ── Producer ────────────────────────────────────────────────────────────
@@ -98,12 +102,20 @@ async def worker_loop(
                         if file_id in seen_ids:
                             continue
 
-                        if max_job_size_bytes:
-                            if not job.get("size") and job.get("url"):
-                                job["size"] = get_size(job["url"])
-                            if job.get("size") and job["size"] > max_job_size_bytes:
+                        if not job.get("size") and job.get("url"):
+                            job["size"] = get_size(job["url"])
+
+                        if job.get("size") and (min_job_size_bytes or max_job_size_bytes):
+                            if min_job_size_bytes and (job["size"] < min_job_size_bytes):
                                 console.print(
-                                    f"[yellow]Skipping job {file_id} "
+                                    f"[yellow]Skipping job {Path(urlparse(job["url"]).path).name} "
+                                    f"({naturalsize(job['size'])} < "
+                                    f"{naturalsize(min_job_size_bytes)})[/yellow]"
+                                )
+                                continue
+                            if max_job_size_bytes and (job["size"] > max_job_size_bytes):
+                                console.print(
+                                    f"[yellow]Skipping job {Path(urlparse(job["url"]).path).name} "
                                     f"({naturalsize(job['size'])} > "
                                     f"{naturalsize(max_job_size_bytes)})[/yellow]"
                                 )

@@ -74,6 +74,7 @@ def status() -> None:
     help="Pre-allocation method when using aria2c (prealloc, falloc, none)",
 )
 @click.option("--temp-dir", default=str(TEMP_DIR), help="Temp download dir")
+@click.option("--min-job-size", default="", help="Skip jobs for files smaller than a given size")
 @click.option("--max-job-size", default="", help="Skip jobs for files larger than a given size")
 @click.option("--keep-files", is_flag=True, default=KEEP_FILES, help="Keep downloaded files after upload")
 def run(
@@ -85,6 +86,7 @@ def run(
     aria2c_connections: int,
     pre_allocation: str,
     temp_dir: str,
+    min_job_size: str,
     max_job_size: str,
     keep_files: bool,
 ) -> None:
@@ -111,6 +113,7 @@ def run(
             batch_size,
             aria2c_connections,
             pre_allocation,
+            min_job_size,
             max_job_size,
             keep_files,
         )
