@@ -9,7 +9,7 @@ from pathvalidate import sanitize_filepath
 from minerva.auth import auth_headers
 from minerva.cache import job_cache
 from minerva.console import WorkerDisplay, console
-from minerva.constants import MAX_DOWNLOAD_RETRIES, MAX_UPLOAD_RETRIES, REPORT_RETRIES, RETRY_DELAY
+from minerva.constants import REPORT_RETRIES, RETRY_DELAY
 from minerva.downloader import download_file
 from minerva.error_handling import _raise_if_upgrade_required, _retry_sleep, _retryable_status
 from minerva.uploader import upload_file
@@ -34,6 +34,8 @@ async def process_job(
     job: dict,
     temp_dir: Path,
     keep_files: bool,
+    dl_retries: int,
+    ul_retries: int,
     aria2c_connections: int,
     pre_allocation: str,
     display: WorkerDisplay,
@@ -68,7 +70,7 @@ async def process_job(
         return
 
     # Download
-    for attempt in range(1, MAX_DOWNLOAD_RETRIES + 1):
+    for attempt in range(1, dl_retries + 1):
         try:
             display.job_update(file_id, "DL", size=known_size, waiting=False)
             await download_file(
@@ -85,12 +87,12 @@ async def process_job(
             break
         except Exception as e:
             last_err = e
-            if attempt < MAX_DOWNLOAD_RETRIES:
+            if attempt < dl_retries:
                 display.job_update(file_id, "RT", done=0, waiting=True)
                 await asyncio.sleep(RETRY_DELAY * attempt)
-            elif attempt == MAX_DOWNLOAD_RETRIES:
+            elif attempt == dl_retries:
                 display.job_done(
-                    file_id, label, ok=False, note=f"Download Failed ({MAX_DOWNLOAD_RETRIES} attempts): {str(last_err)}"
+                    file_id, label, ok=False, note=f"Download Failed ({dl_retries} attempts): {str(last_err)}"
                 )
                 try:
                     await report_job(server_url, token, file_id, "failed", error=str(last_err)[:500])
@@ -99,7 +101,7 @@ async def process_job(
                 return
 
     # Upload
-    for attempt in range(1, MAX_UPLOAD_RETRIES + 1):
+    for attempt in range(1, ul_retries + 1):
         try:
             display.job_update(file_id, "UL", size=known_size, done=file_size or 0, waiting=True)
             await upload_file(
@@ -115,12 +117,12 @@ async def process_job(
             break
         except Exception as e:
             last_err = e
-            if attempt < MAX_UPLOAD_RETRIES:
+            if attempt < ul_retries:
                 display.job_update(file_id, "RT", done=0, waiting=True)
                 await asyncio.sleep(RETRY_DELAY * attempt)
-            elif attempt == MAX_UPLOAD_RETRIES:
+            elif attempt == ul_retries:
                 display.job_done(
-                    file_id, label, ok=False, note=f"Upload Failed ({MAX_UPLOAD_RETRIES} attempts): {str(last_err)}"
+                    file_id, label, ok=False, note=f"Upload Failed ({ul_retries} attempts): {str(last_err)}"
                 )
                 try:
                     await report_job(server_url, token, file_id, "failed", error=str(last_err)[:500])

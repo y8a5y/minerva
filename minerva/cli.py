@@ -25,6 +25,8 @@ from minerva.constants import (
     BATCH_SIZE,
     CONCURRENCY,
     KEEP_FILES,
+    MAX_DOWNLOAD_RETRIES,
+    MAX_UPLOAD_RETRIES,
     SERVER_URL,
     SIZE_IDX_FILE,
     TEMP_DIR,
@@ -66,6 +68,8 @@ def status() -> None:
 @click.option("--upload-server", default=UPLOAD_SERVER_URL, help="Upload API URL")
 @click.option("-c", "--concurrency", default=CONCURRENCY, help="Concurrent downloads")
 @click.option("-b", "--batch-size", default=BATCH_SIZE, help="Max files to fetch per API call")
+@click.option("-dr", "--dl-retries", default=MAX_DOWNLOAD_RETRIES, help="Max amount of attempts to download each job")
+@click.option("-ur", "--ul-retries", default=MAX_UPLOAD_RETRIES, help="Max amount of attempts to upload each job")
 @click.option("-a", "--aria2c-connections", default=ARIA2C_CONNECTIONS, help="aria2c connections per file")
 @click.option(
     "-p",
@@ -83,6 +87,8 @@ def run(
     upload_server: str,
     concurrency: int,
     batch_size: int,
+    dl_retries: int,
+    ul_retries: int,
     aria2c_connections: int,
     pre_allocation: str,
     temp_dir: str,
@@ -111,6 +117,8 @@ def run(
             Path(temp_dir),
             concurrency,
             batch_size,
+            dl_retries,
+            ul_retries,
             aria2c_connections,
             pre_allocation,
             min_job_size,
