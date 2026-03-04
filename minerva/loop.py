@@ -42,6 +42,7 @@ async def worker_loop(
     batch_size: int,
     dl_retries: int,
     ul_retries: int,
+    max_cache_size: str,
     aria2c_connections: int,
     pre_allocation: str,
     min_job_size: str,
@@ -61,6 +62,7 @@ async def worker_loop(
     console.print(f"Downloader:     {'aria2c' if ARIA2C else 'httpx'}")
     console.print(f"Min job size:   {naturalsize(parse_size(min_job_size)) if min_job_size else 'N/A'}")
     console.print(f"Max job size:   {naturalsize(parse_size(max_job_size)) if max_job_size else 'N/A'}")
+    console.print(f"Max cache size: {naturalsize(parse_size(max_cache_size)) if max_cache_size else 'N/A'}")
     console.print(f"Keep files:     {'yes' if keep_files else 'no'}")
     console.print()
 
@@ -77,21 +79,33 @@ async def worker_loop(
     queue: asyncio.Queue = asyncio.Queue(maxsize=concurrency * QUEUE_PREFETCH)
     stop_event = asyncio.Event()
     seen_ids: set[int] = set()
+    seen_lock = asyncio.Lock()
+    max_queue_size: int = parse_size(max_cache_size) if max_cache_size else 0
+    queue_size: int = 0
     display = WorkerDisplay()
+    queue_lock = asyncio.Lock()
+
+    cache_available = asyncio.Event()
+    cache_available.set()
 
     min_job_size_bytes = parse_size(min_job_size) if min_job_size else None
     max_job_size_bytes = parse_size(max_job_size) if max_job_size else None
 
-    async def queue_jobs(jobs: list[dict[str, Any]]) -> None:
+    async def queue_jobs(jobs: list[dict[str, Any]]) -> int:
+        nonlocal queue_size
+
+        jobs_queued = 0
         for job in jobs:
             file_id = job["file_id"]
-            if file_id in seen_ids:
-                continue
+            async with seen_lock:
+                if file_id in seen_ids:
+                    continue
+                seen_ids.add(file_id)
 
             if not job.get("size") and job.get("url"):
                 job["size"] = get_size(job["url"])
 
-            if job.get("size") and (min_job_size_bytes or max_job_size_bytes):
+            if job.get("size"):
                 if min_job_size_bytes and (job["size"] < min_job_size_bytes):
                     console.print(
                         f"[yellow]Skipping job {Path(urlparse(unquote(job['url'])).path).name} "
@@ -106,59 +120,82 @@ async def worker_loop(
                         f"{naturalsize(max_job_size_bytes)})[/yellow]"
                     )
                     continue
+                if max_queue_size:
+                    async with queue_lock:
+                        if (queue_size + job["size"]) > max_queue_size:
+                            console.print(
+                                f"[yellow]Skipping job {Path(urlparse(unquote(job['url'])).path).name} "
+                                f" ({max_queue_size} cache size limit)[/yellow]"
+                            )
+                            continue
+                        queue_size += job["size"]
 
-            seen_ids.add(file_id)
             await queue.put(job)
+            jobs_queued += 1
+
+        return jobs_queued
 
     # ── Producer ────────────────────────────────────────────────────────────
     async def producer() -> None:
         no_jobs_warned = False
         async with httpx.AsyncClient(timeout=30) as api:
             while not stop_event.is_set():
-                if queue.qsize() >= concurrency:
+                async with queue_lock:
+                    bloated = max_queue_size and (queue_size >= max_queue_size)
+                    free_slots = max(0, queue.maxsize - queue.qsize())
+
+                if bloated:
+                    cache_available.clear()
+                    await cache_available.wait()
+                    continue
+
+                if queue.qsize() >= queue.maxsize // 2:
                     await asyncio.sleep(0.5)
                     continue
 
                 cached_jobs = job_cache.list()
                 if cached_jobs:
-                    await queue_jobs(cached_jobs)
+                    jobs_added = await queue_jobs(cached_jobs)
+                    if jobs_added == 0:
+                        await asyncio.sleep(0.5)
+                else:
+                    fetch_count = min(batch_size, free_slots)
+                    try:
+                        resp = await api.get(
+                            f"{server_url}/api/jobs",
+                            params={"count": fetch_count},
+                            headers=auth_headers(token),
+                        )
+                        if resp.status_code == 426:
+                            _raise_if_upgrade_required(resp)
+                        if resp.status_code == 401:
+                            console.print("[red]Token expired. Run: minerva login")
+                            stop_event.set()
+                            break
+                        resp.raise_for_status()
+                        jobs = resp.json().get("jobs", [])
+                        if jobs:
+                            jobs_added = await queue_jobs(jobs)
+                            if jobs_added == 0:
+                                await asyncio.sleep(5)
+                        else:
+                            if not no_jobs_warned:
+                                console.print("[dim]Server has no jobs available, waiting 30s…")
+                                no_jobs_warned = True
+                            await asyncio.sleep(12 + random() * 8)
+                            continue
+                    except httpx.HTTPError as e:
+                        console.print(f"[red]Server error: {e}. Retrying in 10s…")
+                        await asyncio.sleep(6 + random() * 4)
 
-                free_slots = max(1, queue.maxsize - queue.qsize())
-                fetch_count = min(4, batch_size, free_slots)
-                try:
-                    resp = await api.get(
-                        f"{server_url}/api/jobs",
-                        params={"count": fetch_count},
-                        headers=auth_headers(token),
-                    )
-                    if resp.status_code == 426:
-                        _raise_if_upgrade_required(resp)
-                    if resp.status_code == 401:
-                        console.print("[red]Token expired. Run: python worker.py login")
-                        stop_event.set()
-                        break
-                    resp.raise_for_status()
-                    jobs: list[dict] = resp.json().get("jobs", [])
-
-                    if not jobs:
-                        if not no_jobs_warned:
-                            console.print("[dim]No jobs available, waiting 30s…")
-                            no_jobs_warned = True
-                        await asyncio.sleep(12 + random() * 8)
-                        continue
-
-                    no_jobs_warned = False
-                    await queue_jobs(jobs)
-
-                except httpx.HTTPError as e:
-                    console.print(f"[red]Server error: {e}. Retrying in 10s…")
-                    await asyncio.sleep(6 + random() * 4)
+            no_jobs_warned = False
 
         for _ in range(concurrency):
             await queue.put(_STOP)
 
     # ── Workers ─────────────────────────────────────────────────────────────
     async def worker() -> None:
+        nonlocal queue_size
         while True:
             job = await queue.get()
             if job is _STOP:
@@ -179,7 +216,13 @@ async def worker_loop(
                     display,
                 )
             finally:
-                seen_ids.discard(job["file_id"])
+                if max_queue_size and job.get("size"):
+                    async with queue_lock:
+                        queue_size -= job["size"]
+                        if queue_size < max_queue_size:
+                            cache_available.set()
+                async with seen_lock:
+                    seen_ids.discard(job["file_id"])
                 queue.task_done()
 
     asyncio.create_task(input_loop(display))

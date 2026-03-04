@@ -15,6 +15,7 @@ import asyncio
 from pathlib import Path
 
 import click
+from humanfriendly import parse_size
 
 from minerva import __version__
 from minerva.auth import do_login, load_token
@@ -70,6 +71,7 @@ def status() -> None:
 @click.option("-b", "--batch-size", default=BATCH_SIZE, help="Max files to fetch per API call")
 @click.option("-d", "--dl-retries", default=MAX_DOWNLOAD_RETRIES, help="Max amount of attempts to download each job")
 @click.option("-u", "--ul-retries", default=MAX_UPLOAD_RETRIES, help="Max amount of attempts to upload each job")
+@click.option("-m", "--max-cache-size", default="", help="Max amount of storage to use at any given moment")
 @click.option("-a", "--aria2c-connections", default=ARIA2C_CONNECTIONS, help="aria2c connections per file")
 @click.option(
     "-p",
@@ -89,6 +91,7 @@ def run(
     batch_size: int,
     dl_retries: int,
     ul_retries: int,
+    max_cache_size: str,
     aria2c_connections: int,
     pre_allocation: str,
     temp_dir: str,
@@ -108,6 +111,10 @@ def run(
     # initialize the file size index
     init_index(SIZE_IDX_FILE)
 
+    # make sure max cache size isn't set too small or it will constantly ask for jobs
+    if max_cache_size and parse_size(max_cache_size) < parse_size("10GiB"):
+        console.print("[red]The --max-cache-size cannot be smaller than 10GiB[/red]")
+
     # start main loop
     asyncio.run(
         worker_loop(
@@ -119,6 +126,7 @@ def run(
             batch_size,
             dl_retries,
             ul_retries,
+            max_cache_size,
             aria2c_connections,
             pre_allocation,
             min_job_size,
