@@ -5,6 +5,7 @@ from urllib.parse import unquote, urlparse
 
 import httpx
 import jwt
+import readchar
 from humanfriendly import parse_size
 from humanize import naturalsize
 from rich.live import Live
@@ -17,6 +18,17 @@ from minerva.jobs import process_job
 from minerva.size_map import get_size
 
 _STOP = object()
+
+
+async def input_loop(display: WorkerDisplay) -> None:
+    while True:
+        key = await asyncio.to_thread(readchar.readkey)
+
+        with display._lock:
+            if key == readchar.key.RIGHT:
+                display._page += 1
+            elif key == readchar.key.LEFT:
+                display._page -= 1
 
 
 async def worker_loop(
@@ -157,6 +169,7 @@ async def worker_loop(
                 seen_ids.discard(job["file_id"])
                 queue.task_done()
 
+    asyncio.create_task(input_loop(display))
     with Live(display, console=console, refresh_per_second=4, screen=False):
         workers = [asyncio.create_task(worker()) for _ in range(concurrency)]
         producer_task = asyncio.create_task(producer())

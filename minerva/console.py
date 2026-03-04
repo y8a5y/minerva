@@ -33,6 +33,7 @@ class WorkerDisplay:
         self.active: dict = {}  # file_id -> dict
         self._lock = threading.Lock()
         self._session_start = time.monotonic()
+        self._page = 0
         self._total_done = 0
         self._total_fails = 0
         self._total_bytes = 0
@@ -142,15 +143,39 @@ class WorkerDisplay:
             snapshot = list(self.active.values())
             history_lines = list(self.history)
 
-        # Active jobs table
-        table = Table(box=box.SIMPLE, show_header=False, expand=True, header_style="bold dim", padding=(0, 0))
+        height = console.size.height
+
+        # estimate non-table lines
+        non_table_lines = len(history_lines)
+        if history_lines:
+            non_table_lines += 1  # rule
+        non_table_lines += 2  # stats + rule
+
+        available_rows = max(3, height - non_table_lines - 3)
+
+        total_rows = len(snapshot)
+        pages = max(1, (total_rows + available_rows - 1) // available_rows)
+        self._page = max(0, min(self._page, pages - 1))
+
+        start = self._page * available_rows
+        end = start + available_rows
+        visible_jobs = snapshot[start:end]
+
+        table = Table(
+            box=box.SIMPLE,
+            show_header=False,
+            expand=True,
+            header_style="bold dim",
+            padding=(0, 0),
+        )
+
         table.add_column("", width=3)
         table.add_column("File")
         table.add_column("Size", width=10, justify="right")
         table.add_column("Speed", width=10, justify="right")
         table.add_column("Progress", width=26)
 
-        for info in snapshot:
+        for info in visible_jobs:
             st = info["status"]
             color = {"DL": "cyan", "UL": "yellow", "RT": "magenta"}.get(st, "white")
             size = info["size"]
@@ -189,10 +214,17 @@ class WorkerDisplay:
             )
 
         parts: list = []
+
         if history_lines:
             parts.extend(Text.from_markup(line) for line in history_lines)
             parts.append(Rule(style="dim"))
         parts.append(self.get_stats())
         parts.append(Rule(style="dim"))
         parts.append(table)
+
+        if pages > 1:
+            parts.append(
+                Text.from_markup(f"[dim]Page {self._page + 1}/{pages} [← prev | → next][/dim]", justify="center")
+            )
+
         return Group(*parts)

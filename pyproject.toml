@@ -30,6 +30,7 @@ dependencies = [
     "PyJWT~=2.11.0",
     "humanize~=4.15.0",
     "humanfriendly~=10.0",
+    "readchar>=4.2.1",
 ]
 
 [tool.hatch.build.targets.wheel]
