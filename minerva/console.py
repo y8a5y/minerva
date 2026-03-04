@@ -98,7 +98,7 @@ class WorkerDisplay:
         def effective_speed(job: dict[str, Any]) -> int:
             age = now - job["prev_time"]
             decay = max(0.0, 1 - age / 3)
-            return job["speed"] * decay
+            return max(0.0, job["speed"] * decay)
 
         with self._lock:
             snapshot = list(self.active.values())
