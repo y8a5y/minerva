@@ -160,34 +160,37 @@ async def worker_loop(
                     if jobs_added == 0:
                         await asyncio.sleep(0.5)
 
-                fetch_count = min(batch_size, free_slots - jobs_added)
-                try:
-                    resp = await api.get(
-                        f"{server_url}/api/jobs",
-                        params={"count": fetch_count},
-                        headers=auth_headers(token),
-                    )
-                    if resp.status_code == 426:
-                        _raise_if_upgrade_required(resp)
-                    if resp.status_code == 401:
-                        console.print("[red]Token expired. Run: minerva login")
-                        stop_event.set()
-                        break
-                    resp.raise_for_status()
-                    jobs = resp.json().get("jobs", [])
-                    if jobs:
-                        jobs_added = await queue_jobs(jobs)
-                        if jobs_added == 0:
-                            await asyncio.sleep(5)
-                    else:
-                        if not no_jobs_warned:
-                            console.print("[dim]Server has no jobs available, waiting 30s…")
-                            no_jobs_warned = True
-                        await asyncio.sleep(12 + random() * 8)
-                        continue
-                except httpx.HTTPError as e:
-                    console.print(f"[red]Server error: {e}. Retrying in 10s…")
-                    await asyncio.sleep(6 + random() * 4)
+                fetch_count = max(0, min(batch_size, free_slots - jobs_added))
+                if fetch_count > 0:
+                    try:
+                        resp = await api.get(
+                            f"{server_url}/api/jobs",
+                            params={"count": fetch_count},
+                            headers=auth_headers(token),
+                        )
+                        if resp.status_code == 426:
+                            _raise_if_upgrade_required(resp)
+                        if resp.status_code == 401:
+                            console.print("[red]Token expired. Run: minerva login")
+                            stop_event.set()
+                            break
+                        resp.raise_for_status()
+                        jobs = resp.json().get("jobs", [])
+                        if jobs:
+                            jobs_added = await queue_jobs(jobs)
+                            if jobs_added == 0:
+                                await asyncio.sleep(5)
+                        else:
+                            if not no_jobs_warned:
+                                console.print("[dim]Server has no jobs available, waiting 30s…")
+                                no_jobs_warned = True
+                            await asyncio.sleep(12 + random() * 8)
+                            continue
+                    except httpx.HTTPError as e:
+                        console.print(f"[red]Server error: {e}. Retrying in 10s…")
+                        await asyncio.sleep(6 + random() * 4)
+                else:
+                    await asyncio.sleep(2)
 
             no_jobs_warned = False
 
