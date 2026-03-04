@@ -93,14 +93,19 @@ class WorkerDisplay:
     def get_stats(self) -> Table:
         now = time.monotonic()
 
+        def effective_speed(job: dict[str, Any]) -> int:
+            age = now - job["prev_time"]
+            decay = max(0.0, 1 - age / 3)
+            return job["speed"] * decay
+
         with self._lock:
             snapshot = list(self.active.values())
             elapsed_total = now - self._session_start
             done_count = self._total_done
             fail_count = self._total_fails
             total_bytes = self._total_bytes
-            dl_speed = sum(x["speed"] for x in snapshot if x["status"] == "DL")
-            ul_speed = sum(x["speed"] for x in snapshot if x["status"] == "UL")
+            dl_speed = sum(effective_speed(x) for x in snapshot if x["status"] == "DL")
+            ul_speed = sum(effective_speed(x) for x in snapshot if x["status"] == "UL")
 
         h = int(elapsed_total // 3600)
         m = int((elapsed_total % 3600) // 60)
